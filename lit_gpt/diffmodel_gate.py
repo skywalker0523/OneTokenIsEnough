@@ -135,6 +135,8 @@ class SelfAttention(nn.Module):
         # output projection
         self.proj = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
 
+        self.gate = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
+
         self.config = config
 
     def forward(
@@ -154,6 +156,9 @@ class SelfAttention(nn.Module):
 
         # split batched computation into three
         q, k, v = qkv.split((q_per_kv, 1, 1), dim=-2)
+
+        gate_score=self.gate(x)
+        gate_score = torch.sigmoid(gate_score)
 
         # repeat k and v if necessary
         # Peiyuan: we do not need to do this as flash attention 2 already support GQA
@@ -184,7 +189,8 @@ class SelfAttention(nn.Module):
         y = self.scaled_dot_product_attention(q, k, v)
 
         y = y.reshape(B, T, C)  # re-assemble all head outputs side by side
-
+        
+        y = y * gate_score
         # output projection
         y = self.proj(y)
 

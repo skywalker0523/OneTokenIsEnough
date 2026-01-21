@@ -16,7 +16,8 @@ from xformers.ops import SwiGLU
 from .fused_rotary_embedding import apply_rotary_emb_func
 RoPECache = Tuple[torch.Tensor, torch.Tensor]
 KVCache = Tuple[torch.Tensor, torch.Tensor]
-FlashAttention2Available = RequirementCache("flash-attn>=2.0.0.post1")
+#FlashAttention2Available = RequirementCache("flash-attn>=2.0.0.post1")
+FlashAttention2Available = False
 
 
 class TransEncoder(nn.Module):
@@ -28,7 +29,7 @@ class TransEncoder(nn.Module):
         self.lm_head = nn.Linear(config.n_embd, config.padded_vocab_size, bias=False)
         self.transformer = nn.ModuleDict(
             dict(
-                wte=nn.Embedding(config.padded_vocab_size + 1, config.n_embd),
+                wte=nn.Embedding(config.padded_vocab_size + 2, config.n_embd),
                 h=nn.ModuleList(Block(config) for _ in range(config.n_layer)),
                 ln_f=config.norm_class(config.n_embd, eps=config.norm_eps),
             )
@@ -59,6 +60,10 @@ class TransEncoder(nn.Module):
 
         block_size = self.config.block_size
         assert block_size >= T, f"Cannot forward sequence of length {T}, block size is only {block_size}"
+        
+        extra_id=32001
+        mask_token_column = torch.full((B, 1), extra_id, dtype=idx.dtype, device=idx.device)
+        idx = torch.cat([mask_token_column,idx], dim=1)
 
         if self.rope_cache is None:
             self.rope_cache = self.build_rope_cache(idx)
@@ -67,16 +72,26 @@ class TransEncoder(nn.Module):
         # this will be resolved by https://github.com/pytorch/pytorch/issues/96099
 
         cos, sin = self.rope_cache
-        cos = cos[:T]
-        sin = sin[:T]
+        cos = cos[:T+1]
+        sin = sin[:T+1]
 
         # forward the model itself
         x = self.transformer.wte(idx)  # token embeddings of shape (b, t, n_embd)
 
-        for block in self.transformer.h:
-            x = block(x, (cos, sin))
+        #print("x.size()shujusize:",x.size()) #shujusize: torch.Size([8, 2048, 1280])
+        #print(x[999].size())
+        attn_mask = torch.ones(T+1, T+1, device=x.device, dtype=torch.bool)
 
-        x = self.transformer.ln_f(x)
+        # 设置最后一行（最后一个token）的所有列都为True（被mask），除了最后一列（自身）
+        attn_mask[0, 1:] = False  
+        #attn_mask=None
+
+        for block in self.transformer.h:
+            x = block(x, (cos, sin),attn_mask=attn_mask)
+
+        #print("x_out.size():",x.size())
+
+        x = self.transformer.ln_f(x[:,1:,:])
 
         return self.lm_head(x)  # (b, t, vocab_size)
 
@@ -86,7 +101,7 @@ class TransEncoder(nn.Module):
 
     def build_rope_cache(self, idx: torch.Tensor) -> RoPECache:
         return build_rope_cache(
-            seq_len=self.config.block_size,
+            seq_len=self.config.block_size+1,    ############这里需要➕1
             n_elem=int(self.config.rotary_percentage * self.config.head_size),
             dtype=torch.bfloat16,
             device=idx.device,
@@ -107,10 +122,11 @@ class Block(nn.Module):
         self,
         x: torch.Tensor,
         rope: RoPECache,
+        attn_mask=None,
     ) -> Tuple[torch.Tensor, Optional[KVCache]]:
 
         n_1 = self.norm_1(x)
-        h = self.attn(n_1, rope)
+        h = self.attn(n_1, rope, attn_mask=attn_mask)
         if self.config.parallel_residual:
             n_2 = n_1 if self.config.shared_attention_norm else self.norm_2(x)
             x = x + h + self.mlp(n_2)
@@ -141,6 +157,7 @@ class SelfAttention(nn.Module):
         self,
         x: torch.Tensor,
         rope: RoPECache,
+        attn_mask=None,
     ) -> Tuple[torch.Tensor, Optional[KVCache]]:
         B, T, C = x.size()  # batch size, sequence length, embedding dimensionality (n_embd)
 
@@ -181,7 +198,13 @@ class SelfAttention(nn.Module):
         # q = torch.cat((q_roped, q[..., n_elem:]), dim=-1)
         # k = torch.cat((k_roped, k[..., n_elem:]), dim=-1)
 
-        y = self.scaled_dot_product_attention(q, k, v)
+        y = self.scaled_dot_product_attention(q, k, v,attn_mask=attn_mask)
+        # mask_0 = (kwargs['position_ids'] == 0)
+        # #print("mask_0.sum():",mask_0.sum())
+        # mask_0 = mask_0.unsqueeze(-1).unsqueeze(-1).expand_as(attn_output)
+        # #attn_output[mask_0] = value_states_expanded[mask_0].clone()
+        # attn_output = torch.where(mask_0, value_states_expanded, attn_output)
+        #y[:,-1,:]=v[:,-1,:].clone()
 
         y = y.reshape(B, T, C)  # re-assemble all head outputs side by side
 
@@ -191,7 +214,7 @@ class SelfAttention(nn.Module):
         return y
 
     def scaled_dot_product_attention(
-        self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor
+        self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, attn_mask = None
     ):
         scale = 1.0 / math.sqrt(self.config.head_size)
 
@@ -201,17 +224,19 @@ class SelfAttention(nn.Module):
             and q.dtype in (torch.float16, torch.bfloat16)
         ):
             from flash_attn import flash_attn_func
-
+            #print("123456789987")
             return flash_attn_func(q, k, v, dropout_p=0.0, softmax_scale=scale, causal=False)
         q = q.transpose(1, 2)
         k = k.transpose(1, 2)
         v = v.transpose(1, 2)
+        #print("attn_mask.size():",attn_mask.size())
         if q.size() != k.size():
              k = k.repeat_interleave(q.shape[1]//k.shape[1], dim=1)
              v = v.repeat_interleave(q.shape[1]//v.shape[1], dim=1)
         y = torch.nn.functional.scaled_dot_product_attention(
-            q, k, v, attn_mask=None, dropout_p=0.0, scale=scale, is_causal=False
+            q, k, v, attn_mask=attn_mask, dropout_p=0.0, scale=scale, is_causal=False
         )
+        
         return y.transpose(1, 2)
 
 
