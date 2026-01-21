@@ -115,8 +115,8 @@ def forward_process(batch, total_dim=32000, eps=1e-3):
 
 def setup(
     devices: int = 8,
-    train_data_dir: Path = Path("/dataset/slim_star_combined"),
-    val_data_dir: Path = Path("/dataset/slim_star_combined"),
+    train_data_dir: Path = Path("/path2yourdataset"),
+    val_data_dir: Path = Path("/path2yourdataset"),
     precision: Optional[str] = None,
     tpu: bool = False,
     resume: Union[bool, Path] = True,

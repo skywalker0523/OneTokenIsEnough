@@ -1,5 +1,7 @@
 import glob
+import json
 import math
+import re
 import sys
 import time
 from pathlib import Path
@@ -14,23 +16,27 @@ from functools import partial
 wd = Path(__file__).parent.parent.resolve()
 sys.path.append(str(wd))
 # from apex.optimizers import FusedAdam #torch optimizer has a cuda backend, which is faster actually
-from lit_gpt.diffmodel_gate import TransEncoder, Block, Config
+from lit_gpt.diffmodel import TransEncoder, Block, Config
 from lit_gpt.packed_dataset import CombinedDataset, PackedDataset
 from lit_gpt.speed_monitor import SpeedMonitorFabric as Monitor
 from lit_gpt.speed_monitor import estimate_flops, measure_flops
 from lit_gpt.utils import chunked_cross_entropy, get_default_supported_precision, num_parameters, step_csv_logger, lazy_load
 from pytorch_lightning.loggers import WandbLogger
 from flash_attn.losses.cross_entropy import CrossEntropyLoss
+from gsm8k_data import preprocess_gsm8k
+from transformers import AutoTokenizer
 import random
 import argparse
+from safetensors.torch import load_file
 
 
 def parse_args():
     parse = argparse.ArgumentParser()
     parse.add_argument('--model', type=int, help='model parameters')
-    parse.add_argument('--nodes_num', type=int, default=1, help='number of nodes')
-    parse.add_argument('--flops', type=float, help='FLOPs, *e18')
-    parse.add_argument('--batch_size', type=int, default=256, help='global_batch_size')
+    parse.add_argument('--bs', type=int, default=256, help='batch size')
+    parse.add_argument('--epoch', type=int, default=40, help='training epoch')
+    parse.add_argument('--pretrain_path', type=str, help='pretrain ckpt path')
+    parse.add_argument('--nodes_num', type=int, default=1, help='number of devices')
     args = parse.parse_args()
     return args
 
@@ -38,41 +44,22 @@ args = parse_args()
 model_name = f'Diff_LLaMA_{args.model}M'  # config
 out_dir = Path('workdir')
 
-model_para_config = {
-    '6': 6.294784, '19': 18.880896, '34': 33.563136, '48': 47.786688, '66': 65.54944,
-    '85': 85.21408, '75': 75.38752, '113': 113.265408, '142': 141.581568, '170': 169.897728,
-    '180': 179.856768, '206': 205.550464, '231': 231.24416, '268': 268.469248, '302': 302.027776,
-    '336': 335.586304, '472': 471.90656, '551': 550.55744, '571': 571.001728, '629': 629.20832,
-    '666': 666.168448, '717': 717.285888, '761': 761.335168, '831': 830.541312, '944': 943.796736,
-    '1028': 1027.677952, '1233': 1233.213184, '1476': 1476.487168, '1678': 1677.826048, '2121': 2121.39328
-}
-
 # Hyperparameters
 num_of_devices = 8
-global_batch_size = int(args.batch_size / args.nodes_num)
+global_batch_size = int(args.bs / args.nodes_num)
 learning_rate = 2e-4
-if args.model <= 20:
-    micro_batch_size = 32
-elif args.model <= 50:
-    micro_batch_size = 16
-elif args.model <= 1000:
-    micro_batch_size = 8
-else:
-    micro_batch_size = 4
-max_step = int(args.flops * 1e12 / (6 * model_para_config[f'{args.model}'] * global_batch_size * 2048) / args.nodes_num)
-warmup_steps = int(max_step / 100) if int(max_step / 100) > 100 else 100
+micro_batch_size = 16
+max_step = int(769240 * args.epoch / args.bs)
+warmup_steps = int(max_step * 0.01)
 log_step_interval = 10
-eval_iters = int(100 * 1024 / global_batch_size)
 save_step_interval = 5000
-eval_step_interval = 999999999999 #inf
-
 
 weight_decay = 1e-1
 beta1 = 0.9
 beta2 = 0.95
 grad_clip = 1.0
 decay_lr = True
-min_lr = 2e-5
+min_lr = learning_rate / 10
 
 batch_size = global_batch_size // num_of_devices
 gradient_accumulation_steps = batch_size // micro_batch_size
@@ -87,16 +74,6 @@ lr_decay_iters = max_iters
 log_iter_interval = log_step_interval * gradient_accumulation_steps
 
 
-# Treat all dataset equally by their size. If you want to use a different weight for a dataset, add it to the list with the weight.
-train_data_config = [
-    ("train_slim", 1.0),
-    ("train_star", 0.),
-]
-
-val_data_config = [
-    ("validation", 1.0),
-]
-
 hparams = {k: v for k, v in locals().items() if isinstance(v, (int, float, str)) and not k.startswith("_")}
 logger = step_csv_logger("out", model_name, flush_logs_every_n_steps=log_iter_interval)
 
@@ -110,21 +87,25 @@ def forward_process(batch, total_dim=32000, eps=1e-3):
 
     mask_indices = torch.rand((b, l), device=batch.device) < p_mask
     noisy_batch = torch.where(mask_indices, total_dim, batch)
-    return noisy_batch, mask_indices, p_mask
+    return noisy_batch, p_mask
+
+
+def extract_number(filename):
+    match = re.search(r'iter-(\d+)-ckpt\.pth', str(filename))
+    return int(match.group(1)) if match else 0
 
 
 def setup(
     devices: int = 8,
-    train_data_dir: Path = Path("/path2yourdataset"),
-    val_data_dir: Path = Path("/path2yourdataset"),
     precision: Optional[str] = None,
     tpu: bool = False,
     resume: Union[bool, Path] = True,
 ) -> None:
     global out_dir
-    hp_name = f'mdm-{args.model}M-{args.flops}'
-    out_dir = Path('workdir/scaling_debug') / hp_name
-    wandb_logger = WandbLogger(name=f'{hp_name}-mc', save_dir=out_dir, project='scaling')
+    hp_name = f'mdm-gsm8k-{args.model}M'
+    out_dir = Path('workdir/finetune') / hp_name
+    pretrain_path = args.pretrain_path
+    wandb_logger = WandbLogger(name=hp_name, save_dir=out_dir, project='scaling')
 
     precision = precision or get_default_supported_precision(training=True, tpu=tpu)
 
@@ -147,10 +128,10 @@ def setup(
     fabric = L.Fabric(devices=devices, strategy=strategy, precision=precision, loggers=[logger, wandb_logger])
     fabric.print(hparams)
     #fabric.launch(main, train_data_dir, val_data_dir, resume)
-    main(fabric, train_data_dir, val_data_dir, resume)
+    main(fabric, pretrain_path, resume)
 
 
-def main(fabric, train_data_dir, val_data_dir, resume):
+def main(fabric, pretrain_path, resume):
     monitor = Monitor(fabric, window_size=2, time_unit="seconds", log_iter_interval=log_iter_interval)
 
     if fabric.global_rank == 0:
@@ -158,27 +139,25 @@ def main(fabric, train_data_dir, val_data_dir, resume):
 
     config = Config.from_name(model_name)
 
-    train_dataloader, val_dataloader = create_dataloaders(
-        batch_size=micro_batch_size,
-        block_size=config.block_size,
-        fabric=fabric,
-        train_data_dir=train_data_dir,
-        val_data_dir=val_data_dir,
-        seed=3407,
-    )
-    if val_dataloader is None:
-        train_dataloader = fabric.setup_dataloaders(train_dataloader)
-    else:
-        train_dataloader, val_dataloader = fabric.setup_dataloaders(train_dataloader, val_dataloader)
+    tokenizer = AutoTokenizer.from_pretrained('TinyLlama/TinyLlama-1.1B-intermediate-step-1431k-3T',
+                                              padding_side="right", use_fast=True)
+
+    train_set = preprocess_gsm8k(tokenizer, max_length=256)
 
     fabric.seed_everything(3407)  # same seed for every process to init model (FSDP)
+    train_dataloader = DataLoader(train_set, batch_size=micro_batch_size, shuffle=True, drop_last=True,
+                                      num_workers=8, pin_memory=True, persistent_workers=True)
+    train_dataloader = fabric.setup_dataloaders(train_dataloader)
 
     fabric.print(f"Loading model with {config.__dict__}")
     t0 = time.perf_counter()
     with fabric.init_module(empty_init=False):
         model = TransEncoder(config)
         model.apply(partial(model._init_weights ,n_layer=config.n_layer))
- 
+
+        ckpt_dic = load_file(pretrain_path)
+        model.load_state_dict(ckpt_dic)
+        fabric.print(f"Loading model from {pretrain_path}")
 
     fabric.print(f"Time to instantiate model: {time.perf_counter() - t0:.02f} seconds.")
     fabric.print(f"Total parameters {num_parameters(model):,}")
@@ -193,10 +172,6 @@ def main(fabric, train_data_dir, val_data_dir, resume):
     state = {"model": model, "optimizer": optimizer, "hparams": hparams, "iter_num": 0, "step_count": 0}
 
     if resume is True:
-        import re
-        def extract_number(filename):
-            match = re.search(r'iter-(\d+)-ckpt\.pth', str(filename))
-            return int(match.group(1)) if match else 0
         try:
             resume = sorted(out_dir.glob("*.pth"), key=extract_number)[-1]
         except:
@@ -206,18 +181,15 @@ def main(fabric, train_data_dir, val_data_dir, resume):
         fabric.load(resume, state)
 
     train_time = time.perf_counter()
-    train(fabric, state, train_dataloader, val_dataloader, monitor, resume)
+    train(fabric, state, train_dataloader, monitor, resume)
     fabric.print(f"Training time: {(time.perf_counter()-train_time):.2f}s")
     if fabric.device.type == "cuda":
         fabric.print(f"Memory used: {torch.cuda.max_memory_allocated() / 1e9:.02f} GB")
 
 
-def train(fabric, state, train_dataloader, val_dataloader, monitor, resume):
+def train(fabric, state, train_dataloader, monitor, resume):
     model = state["model"]
     optimizer = state["optimizer"]
-
-    # if val_dataloader is not None:
-    #     validate(fabric, model, val_dataloader)  # sanity check
 
     with torch.device("meta"):
         meta_model = TransEncoder(model.config)
@@ -243,9 +215,15 @@ def train(fabric, state, train_dataloader, val_dataloader, monitor, resume):
     
     initial_iter = state["iter_num"]
     curr_iter = 0
+
+    def get_train_dataloader(dataset_loader):
+        while True:
+            for data in dataset_loader:
+                yield data
+    train_dataloader_ = get_train_dataloader(train_dataloader)
             
     loss_func = CrossEntropyLoss(reduction='none')
-    for  train_data in train_dataloader:
+    for train_data in train_dataloader_:
         # resume loader state. This is not elegant but it works. Should rewrite it in the future.
         if resume:
             if curr_iter < initial_iter:
@@ -265,15 +243,23 @@ def train(fabric, state, train_dataloader, val_dataloader, monitor, resume):
             param_group["lr"] = lr
 
         iter_t0 = time.perf_counter()
+        input_ids = train_data['data'] # [prompt + answer + padding], length=2048
+        prompt_length = train_data['input_length']  # prompt length
+        max_length = 256
+        input_ids = input_ids[:, :max_length]
 
-        input_ids = train_data[:, 0 : model.config.block_size].contiguous()
-        noisy_input, mask_indices, p_mask = forward_process(input_ids)
+        total_dim = 32000
+        noisy_input, p_mask = forward_process(input_ids, total_dim=total_dim)
+        temp_tensor = torch.arange(noisy_input.size(1), device=noisy_input.device).expand(noisy_input.size(0), noisy_input.size(1))
+        prompt_index = (temp_tensor < prompt_length.unsqueeze(1))
+        noisy_input[prompt_index] = input_ids[prompt_index].clone()
+        mask_indices = (noisy_input == total_dim)
+
         is_accumulating = (state["iter_num"] + 1) % gradient_accumulation_steps != 0
         with fabric.no_backward_sync(model, enabled=is_accumulating):
             logits = model(noisy_input)
             loss = loss_func(logits[mask_indices], input_ids[mask_indices]) / p_mask[mask_indices]
-            loss = loss.sum() / (input_ids.shape[0] * input_ids.shape[1])
-
+            loss = loss.sum() / (input_ids.shape[0] * max_length - prompt_length.sum())
             # loss = chunked_cross_entropy(logits, targets, chunk_size=0)
             fabric.backward(loss / gradient_accumulation_steps)
 
@@ -307,126 +293,10 @@ def train(fabric, state, train_dataloader, val_dataloader, monitor, resume):
             train_loss = loss.item()
         )
 
-            
-            
-            
-        if val_dataloader is not None and not is_accumulating and (state["step_count"] % eval_step_interval == 0 or state["step_count"] == max_step):
-            
-            t0 = time.perf_counter()
-            val_loss = validate(fabric, model, val_dataloader)
-            t1 = time.perf_counter() - t0
-            monitor.eval_end(t1)
-            fabric.print(f"step {state['iter_num']}: val loss {val_loss:.4f}, val time: {t1 * 1000:.2f}ms")
-            fabric.log_dict({"metric/val_loss": val_loss.item(), "total_tokens": model.config.block_size * (state["iter_num"] + 1) * micro_batch_size * fabric.world_size}, state["step_count"])
-            fabric.log_dict({"metric/val_ppl": math.exp(val_loss.item()), "total_tokens": model.config.block_size * (state["iter_num"] + 1) * micro_batch_size * fabric.world_size}, state["step_count"])
-            fabric.barrier()
         if not is_accumulating and (state["step_count"] % save_step_interval == 0 or state["step_count"] == max_step):
             checkpoint_path = out_dir / f"iter-{state['iter_num']:06d}-ckpt.pth"
             fabric.print(f"Saving checkpoint to {str(checkpoint_path)!r}")
             fabric.save(checkpoint_path, state)
-
-        
-@torch.no_grad()
-def validate(fabric: L.Fabric, model: torch.nn.Module, val_dataloader: DataLoader) -> torch.Tensor:
-    fabric.print("Validating ...")
-    model.eval()
-
-    losses = torch.zeros(eval_iters, device=fabric.device)
-    for k, val_data in enumerate(val_dataloader):
-        if k >= eval_iters:
-            break
-
-        mc_loss = torch.zeros(128, device=fabric.device)  # mc_num=128
-        for i in range(128):
-            input_ids = val_data[:, 0 : model.config.block_size].contiguous()
-            noisy_input, mask_indices, p_mask = forward_process(input_ids)
-            logits = model(noisy_input)
-            loss = torch.nn.functional.cross_entropy(logits[mask_indices], input_ids[mask_indices], reduction='none') / p_mask[mask_indices]
-            loss = loss.sum() / (input_ids.shape[0] * input_ids.shape[1])
-            mc_loss[i] = loss
-
-        # loss_func = FusedCrossEntropyLoss()
-        # loss = loss_func(logits, targets)
-        losses[k] = mc_loss.mean().item()
-
-    losses = fabric.all_reduce(losses, reduce_op="mean")
-    out = losses.mean()
-
-    model.train()
-    return out
-
-
-def create_dataloader(
-    batch_size: int, block_size: int, data_dir: Path, fabric, shuffle: bool = True, seed: int = 12345, split="train"
-) -> DataLoader:
-    datasets = []
-    data_config = train_data_config if split == "train" else val_data_config
-    for prefix, _ in data_config:
-        filenames = sorted(glob.glob(str(data_dir / f"{prefix}*")))
-        random.seed(seed)
-        random.shuffle(filenames)
-
-        dataset = PackedDataset(
-            filenames,
-            # n_chunks control the buffer size. 
-            # Note that the buffer size also impacts the random shuffle
-            # (PackedDataset is an IterableDataset. So the shuffle is done by prefetch a buffer and shuffle the buffer)
-            n_chunks=8 if split == "train" else 1,
-            block_size=block_size,
-            shuffle=shuffle,
-            seed=seed+fabric.global_rank,
-            num_processes=fabric.world_size,
-            process_rank=fabric.global_rank,
-        )
-        datasets.append(dataset)
-
-    if not datasets:
-        raise RuntimeError(
-            f"No data found at {data_dir}. Make sure you ran prepare_redpajama.py to create the dataset."
-        )
-
-    weights = [weight for _, weight in data_config]
-    sum_weights = sum(weights)
-    weights = [el / sum_weights for el in weights]
-
-    combined_dataset = CombinedDataset(datasets=datasets, seed=seed, weights=weights)
-
-    return DataLoader(combined_dataset, batch_size=batch_size, shuffle=False, pin_memory=True)
-
-
-def create_dataloaders(
-    batch_size: int,
-    block_size: int,
-    fabric,
-    train_data_dir: Path = Path("data/redpajama_sample"),
-    val_data_dir: Optional[Path] = None,
-    seed: int = 12345,
-) -> Tuple[DataLoader, DataLoader]:
-    # Increase by one because we need the next word as well
-    effective_block_size = block_size + 1
-    train_dataloader = create_dataloader(
-        batch_size=batch_size,
-        block_size=effective_block_size,
-        fabric=fabric,
-        data_dir=train_data_dir,
-        shuffle=True,
-        seed=seed,
-        split="train"
-    )
-    val_dataloader = (
-        create_dataloader(
-            batch_size=batch_size,
-            block_size=effective_block_size,
-            fabric=fabric,
-            data_dir=val_data_dir,
-            shuffle=False,
-            seed=seed,
-            split="validation"
-        )
-        if val_data_dir
-        else None
-    )
-    return train_dataloader, val_dataloader
 
 
 # learning rate decay scheduler (cosine with warmup)
