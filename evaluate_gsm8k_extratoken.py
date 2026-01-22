@@ -9,7 +9,7 @@ from datasets import load_dataset
 from safetensors.torch import load_file
 
 from eval.gen_model_answer import diff_sample
-from evaluate_diff_extratoken import set_seed
+from evaluate_diff import set_seed
 from eval.math_normalization import normalize_final_answer, check_sympy_equivalence
 
 
