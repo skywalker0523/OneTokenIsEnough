@@ -10,78 +10,51 @@ Experimental results demonstrate that introducing a single extra token stabilize
     <img src="./imgs/main.png" style="width: 48%;"/>
 </div>
 
-
+## News
+Code for training DLM form scratch(based on [SMDM](https://github.com/ML-GSAI/SMDM)) now available.
 
 ## Dependency
-We can build the Anaconda environment based on [TinyLlama](https://github.com/jzhang38/TinyLlama/blob/main/PRETRAIN.md). First install the [TinyLlama](https://github.com/jzhang38/TinyLlama/blob/main/PRETRAIN.md) Anaconda environment and then run
-```sh
-pip install lm-eval==0.4.4 numpy==1.25.0 bitsandbytes==0.43.1
-pip install openai==0.28 fschat==0.2.34 anthropic
-```
-In addition, we provide the conda installation commands in the [CONDA.md](CONDA.md) file for reference and completeness.
-
-## Pretrained models
-We provided all pretrained models on [Huggingface](https://huggingface.co/nieshen/SMDM), including those 
-for the scaling laws experiment, the conditional generation experiment, 
-and the reverse curse experiment. 
-
-We hope that the series of pretrained ARMs and MDMs will contribute to the advancement of the field.
-
+We can build the Anaconda environment based on [SMDM](https://github.com/ML-GSAI/SMDM). 
 
 ## Pretrain
-Please first use the code provided by [TinyLlama](https://github.com/jzhang38/TinyLlama/blob/main/PRETRAIN.md) to preprocess the 
-[SlimPajama](https://huggingface.co/datasets/cerebras/SlimPajama-627B) dataset and the put the data chunks into `/dataset/slim_star_combined`.
+Please first prepare dataset following [SMDM](https://github.com/ML-GSAI/SMDM).
 
 
-### Pretrain ARMs
+
+### Pretrain DLMs
 ```sh
-# e.g., 1028M non-embedding parameters ARM and 100e18 training FLOPs, 8 GPUs
+# e.g., 472M(0.5B) non-embedding parameters MDM and 300e18 training FLOPs, 8 GPUs
 lightning run model \
     --node-rank=0  \
     --accelerator=cuda \
     --devices=8 \
     --num-nodes=1 \
-    pretrain/train_ar.py --model 1028 --flops 100.
+    pretrain/train_mdm.py --model 472 --flops 300.
 ```
 
 
-### Pretrain MDMs
+### Pretrain DLMs with element-wise Gated Attention
 ```sh
-# e.g., 170M non-embedding parameters MDM and 10e18 training FLOPs, 8 GPUs
-lightning run model \
-    --node-rank=0  \
-    --accelerator=cuda \
-    --devices=8 \
-    --num-nodes=1 \
-    pretrain/train_mdm.py --model 170 --flops 10.
-```
-
-
-### Pretrain MDMs with stochastic sequence length
-```sh
-# e.g., 170M non-embedding parameters MDM and 60e18 training FLOPs, 8 GPUs
+# e.g., 472M original non-embedding parameters + extra param for Gated Attention, same training tokens
 # set 1% data to a stochastic sequence length
 lightning run model \
     --node-rank=0  \
     --accelerator=cuda \
     --devices=8 \
     --num-nodes=1 \
-    pretrain/train_mdm_rl.py --model 170 --flops 60. --ssl_ratio 0.01
+    pretrain/train_mdm.py --model 472 --flops 300.
 ```
 
-### Multi-machine training
+### Pretrain DLMs with extra token
 ```sh
-# e.g., 1028M non-embedding parameters MDM and 1600e18 training FLOPs
-# set 1% data to a stochastic sequence length
-# 2 machines, 16 GPUs
 lightning run model \
-    --node-rank=$RANK  \
-    --main-address=$MASTER_ADDR \
+    --node-rank=0  \
     --accelerator=cuda \
     --devices=8 \
-    --num-nodes=2 \
-    pretrain/train_mdm_rl.py --model 1028 --flops 1600. --ssl_ratio 0.01 --nodes_num 2
+    --num-nodes=1 \
+    pretrain/train_mdm.py --model 472 --flops 300.
 ```
+
 
 ## Supervised fine-tuning
 ### Math reasoning
@@ -93,42 +66,7 @@ lightning run model \
     --accelerator=cuda \
     --devices=8 \
     --num-nodes=1 \
-    sft/finetune_mdm_gsm8k.py --model 1028 --pretrain_path models/mdm-1028M-3300e18-rsl-0.01-bs-1024.safetensors
-```
-
-### Conditional generation
-Please download the [ShareGPT](https://huggingface.co/datasets/anon8231489123/ShareGPT_Vicuna_unfiltered/blob/main/ShareGPT_V3_unfiltered_cleaned_split_no_imsorry.json) dataset and put the json file in `./data`.
-Following [CLLM](https://github.com/hao-ai-lab/Consistency_LLM), we only used the first round of dialogue data.
-```sh
-# Finetune ARMs
-lightning run model \
-    --node-rank=0  \
-    --accelerator=cuda \
-    --devices=8 \
-    --num-nodes=1 \
-    sft/finetune_ar.py --model 1028 --pretrain_path models/ar-1028M-100e18.safetensors
-    
-    
-# Finetune MDMs
-# For the unsupervised CFG, we set --cfg to 0.
-# For the standard CFG, we set --cfg to 0.1
-lightning run model \
-    --node-rank=0  \
-    --accelerator=cuda \
-    --devices=8 \
-    --num-nodes=1 \
-    sft/finetune_mdm.py --model 1028 --pretrain_path models/mdm-1028M-1600e18.safetensors --cfg 0.
-```
-
-### Reverse curse
-Please download the `reverse_experiments` folder provided by [lukasberglund](https://github.com/lukasberglund/reversal_curse/tree/main/data/reverse_experiments) and place it in `./data`.
-```sh
-lightning run model \
-    --node-rank=0  \
-    --accelerator=cuda \
-    --devices=8 \
-    --num-nodes=1 \
-    sft/finetune_mdm_reverse.py --model 1028 --pretrain_path models/mdm-1028M-1600e18.safetensors
+    sft/finetune_mdm_gsm8k.py --model 472 --pretrain_path yourpathtosavemodel
 ```
 
 ## Evaluation
@@ -137,30 +75,9 @@ lightning run model \
 We use the famous [lm-evaluation-harness](https://github.com/EleutherAI/lm-evaluation-harness) framework for evaluation.
 
 
-#### GPT-2
-```sh
-lm_eval --model hf \
-    --model_args pretrained=openai-community/gpt2-xl,dtype="float" \
-    --tasks hellaswag,openbookqa,arc_easy,boolq,piqa,social_iqa,race,lambada_standard \
-    --device cuda:0
-```
-
-#### TinyLlama
-We evaluate TinyLlama with 3.3e21 pre-training FLOPs.
-```angular2html
-lm_eval --model hf \
-    --model_args pretrained=TinyLlama/tinyLLaMA-v1.1-checkpoints,revision=step-300000,dtype="bfloat16" \
-    --tasks hellaswag,openbookqa,arc_easy,boolq,piqa,social_iqa,race,lambada_standard \
-    --device cuda
-```
-
-#### ARMs pretrained on the SlimPajama dataset
-```sh
-python evaluate_ar.py --tasks hellaswag,openbookqa,arc_easy,boolq,piqa,social_iqa,race,lambada_standard --model ar --model_args model_name=170,ckpt_path='models/ar-170M-100e18.safetensors'
-```
 
 #### MDMs pretrained on the SlimPajama dataset
-We provide the running commands in `eval_mdm.sh`.
+We provide the running commands in `eval_mdm.sh`, `eval_mdm_gate.sh` and `eval_mdm_extratoken.sh`.
 
 
 ### Math reasoning
@@ -171,53 +88,4 @@ python evaluate_gsm8k.py --ckpt_path "models/mdm-1028M-3300e18-rsl-gsm8k.safeten
 ```
 
 
-### Conditional generation
-We measure the MT-Bench score using the [fast-chat](https://github.com/lm-sys/FastChat) framework. We first generate model responses and put the responses in the json files.
-```angular2html
-# ARMs
-python eval/gen_model_answer.py --model-id 1028 --model-type 'arm' --model-path "models/ar-1028M-100e18-sharegpt.safetensors" --answer-file "data/mt_bench/model_answer/arm.jsonl" 
 
-# MDMs
-python eval/gen_model_answer.py --model-id 1028 --model-type 'mdm' --model-path "models/mdm-1028M-1600e18-sharegpt.safetensors" --steps 128 --cfg-scale 0.6 --answer-file "data/mt_bench/model_answer/mdm.jsonl" 
-```
-
-Then we use GPT-4o to score.
-```angular2html
-export OPENAI_API_KEY=xxxxxxxxx
-python eval/gen_judgment.py  --parallel 10 --judge-model "gpt-4o-2024-05-13"
-python eval/show_result.py  --judge-model "gpt-4o-2024-05-13"
-```
-
-### Reverse curse
-```angular2html
-# NameToDescription
-python evaluate_reverse.py --qs_type ntd --model 1028 --ckpt-path "models/mdm-1028M-1600e18-reverse.safetensors"
-
-# DescriptionToName
-python evaluate_reverse.py --qs_type dtn --model 1028 --ckpt-path "models/mdm-1028M-1600e18-reverse.safetensors"
-```
-
-### Temporal quality degradation
-We first preprocess the [Fineweb](https://huggingface.co/datasets/HuggingFaceFW/fineweb) dataset. Due to version conflicts, we need to create a new Anaconda environment to preprocess the FineWeb dataset.
-```angular2html
-conda create -n fineweb python=3.10
-conda activate fineweb
-
-pip install datatrove==0.2.0 transformers pyarrow
-```
-
-Then preprocess the Fineweb dataset.
-```angular2html
-python scripts/prepare_fineweb.py
-```
-
-Evaluate ARMs and MDMs on the Fineweb data.
-```angular2html
-# "CC-MAIN-2024-18": April 2024, "CC-MAIN-2024-10": February/March 2024
-
-# ARMs
-python evaluate_fineweb.py --type arm --model 170  --ckpt-path 'models/ar-170M-6e18.safetensors' --fineweb "CC-MAIN-2024-10"
-
-# MDMs. To improve speed, the number of Monte Carlo estimations can be reduced, for example, down to 16.
-python evaluate_fineweb.py --type mdm --model 170  --ckpt-path 'models/mdm-170M-100e18.safetensors' --fineweb "CC-MAIN-2024-18" --mc-samples 128
-```
