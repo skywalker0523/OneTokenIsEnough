@@ -16,7 +16,7 @@ from functools import partial
 wd = Path(__file__).parent.parent.resolve()
 sys.path.append(str(wd))
 # from apex.optimizers import FusedAdam #torch optimizer has a cuda backend, which is faster actually
-from lit_gpt.diffmodel_extratoken import TransEncoder, Block, Config
+from lit_gpt.diffmodel import TransEncoder, Block, Config
 from lit_gpt.packed_dataset import CombinedDataset, PackedDataset
 from lit_gpt.speed_monitor import SpeedMonitorFabric as Monitor
 from lit_gpt.speed_monitor import estimate_flops, measure_flops

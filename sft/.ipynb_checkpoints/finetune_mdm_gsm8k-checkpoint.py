@@ -16,7 +16,7 @@ from functools import partial
 wd = Path(__file__).parent.parent.resolve()
 sys.path.append(str(wd))
 # from apex.optimizers import FusedAdam #torch optimizer has a cuda backend, which is faster actually
-from lit_gpt.diffmodel import TransEncoder, Block, Config
+from lit_gpt.diffmodel_extratoken import TransEncoder, Block, Config
 from lit_gpt.packed_dataset import CombinedDataset, PackedDataset
 from lit_gpt.speed_monitor import SpeedMonitorFabric as Monitor
 from lit_gpt.speed_monitor import estimate_flops, measure_flops
@@ -34,7 +34,7 @@ def parse_args():
     parse = argparse.ArgumentParser()
     parse.add_argument('--model', type=int, help='model parameters')
     parse.add_argument('--bs', type=int, default=256, help='batch size')
-    parse.add_argument('--epoch', type=int, default=40, help='training epoch')
+    parse.add_argument('--epoch', type=int, default=10, help='training epoch')
     parse.add_argument('--pretrain_path', type=str, help='pretrain ckpt path')
     parse.add_argument('--nodes_num', type=int, default=1, help='number of devices')
     args = parse.parse_args()

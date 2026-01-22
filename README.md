@@ -69,6 +69,24 @@ lightning run model \
     sft/finetune_mdm_gsm8k.py --model 472 --pretrain_path yourpathtosavemodel
 ```
 
+```angular2html
+lightning run model \
+    --node-rank=0  \
+    --accelerator=cuda \
+    --devices=8 \
+    --num-nodes=1 \
+    sft/finetune_mdm_gsm8k_gate.py --model 472 --pretrain_path yourpathtosavemodel
+```
+
+```angular2html
+lightning run model \
+    --node-rank=0  \
+    --accelerator=cuda \
+    --devices=8 \
+    --num-nodes=1 \
+    sft/finetune_mdm_gsm8k_extratoken.py --model 472 --pretrain_path yourpathtosavemodel
+```
+
 ## Evaluation
 
 ### Commonsense reasoning and reading comprehension
@@ -85,6 +103,12 @@ Please download the GSM8K test [data](https://github.com/hao-ai-lab/Consistency_
 and put the `test.jsonl` into `./data/gsm8k`
 ```angular2html
 python evaluate_gsm8k.py --ckpt_path "models/mdm-1028M-3300e18-rsl-gsm8k.safetensors"
+```
+```angular2html
+python evaluate_gsm8k_gate.py --ckpt_path "models/mdm-1028M-3300e18-rsl-gsm8k.safetensors"
+```
+```angular2html
+python evaluate_gsm8k_extratoken.py --ckpt_path "models/mdm-1028M-3300e18-rsl-gsm8k.safetensors"
 ```
 
 
