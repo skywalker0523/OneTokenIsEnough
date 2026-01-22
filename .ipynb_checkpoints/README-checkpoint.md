@@ -102,13 +102,13 @@ We provide the running commands in `eval_mdm.sh`, `eval_mdm_gate.sh` and `eval_m
 Please download the GSM8K test [data](https://github.com/hao-ai-lab/Consistency_LLM/blob/main/eval/gsm8k/test.jsonl)
 and put the `test.jsonl` into `./data/gsm8k`
 ```angular2html
-python evaluate_gsm8k.py --ckpt_path "models/mdm-1028M-3300e18-rsl-gsm8k.safetensors"
+python evaluate_gsm8k.py --ckpt_path "your_path_to_sftmodel"
 ```
 ```angular2html
-python evaluate_gsm8k_gate.py --ckpt_path "models/mdm-1028M-3300e18-rsl-gsm8k.safetensors"
+python evaluate_gsm8k_gate.py --ckpt_path "your_path_to_sftmodel"
 ```
 ```angular2html
-python evaluate_gsm8k_extratoken.py --ckpt_path "models/mdm-1028M-3300e18-rsl-gsm8k.safetensors"
+python evaluate_gsm8k_extratoken.py --ckpt_path "your_path_to_sftmodel"
 ```
 
 
