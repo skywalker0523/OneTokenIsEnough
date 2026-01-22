@@ -55,6 +55,16 @@ lightning run model \
     pretrain/train_mdm.py --model 472 --flops 300.
 ```
 
+## Evaluate DLMs after Pretraining
+
+### Commonsense reasoning and reading comprehension
+We use the famous [lm-evaluation-harness](https://github.com/EleutherAI/lm-evaluation-harness) framework for evaluation.
+
+
+
+#### MDMs pretrained on the SlimPajama dataset
+We provide the running commands in `eval_mdm.sh`, `eval_mdm_gate.sh` and `eval_mdm_extratoken.sh`.
+
 
 ## Supervised fine-tuning
 ### Math reasoning
@@ -86,16 +96,6 @@ lightning run model \
     --num-nodes=1 \
     sft/finetune_mdm_gsm8k_extratoken.py --model 472 --pretrain_path yourpathtosavemodel
 ```
-
-## Evaluation
-
-### Commonsense reasoning and reading comprehension
-We use the famous [lm-evaluation-harness](https://github.com/EleutherAI/lm-evaluation-harness) framework for evaluation.
-
-
-
-#### MDMs pretrained on the SlimPajama dataset
-We provide the running commands in `eval_mdm.sh`, `eval_mdm_gate.sh` and `eval_mdm_extratoken.sh`.
 
 
 ### Math reasoning
