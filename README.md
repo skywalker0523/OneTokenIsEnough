@@ -11,7 +11,7 @@ Experimental results demonstrate that introducing a single extra token stabilize
 </div>
 
 ## News
-Code for training DLM form scratch(based on [SMDM](https://github.com/ML-GSAI/SMDM)) now available.
+Code for training DLM form scratch(based on [SMDM](https://github.com/ML-GSAI/SMDM)) now released!
 
 ## Dependency
 We can build the Anaconda environment based on [SMDM](https://github.com/ML-GSAI/SMDM). 
@@ -36,7 +36,6 @@ lightning run model \
 ### Pretrain DLMs with element-wise Gated Attention
 ```sh
 # e.g., 472M original non-embedding parameters + extra param for Gated Attention, same training tokens
-# set 1% data to a stochastic sequence length
 lightning run model \
     --node-rank=0  \
     --accelerator=cuda \
