@@ -11,6 +11,7 @@ Experimental results demonstrate that introducing a single extra token stabilize
 </div>
 
 ## News
+Our [paper](https://arxiv.org/abs/2601.19657) is available!
 Code for training DLM form scratch(based on [SMDM](https://github.com/ML-GSAI/SMDM)) now released!
 
 ## Dependency
