@@ -3,7 +3,7 @@ import argparse
 import re
 
 from lit_gpt.model_cache import Config
-from lit_gpt.diffmodel import TransEncoder
+from lit_gpt.diffmodel_extratoken import TransEncoder
 from transformers import AutoTokenizer
 from datasets import load_dataset
 from safetensors.torch import load_file
