@@ -15,7 +15,7 @@ from lm_eval.api.registry import register_model
 from tqdm import tqdm
 
 from transformers import AutoTokenizer
-from lit_gpt.diffmodel_gate import TransEncoder, Config
+from lit_gpt.diffmodel_extratoken import TransEncoder, Config
 from safetensors.torch import load_file
 
 
