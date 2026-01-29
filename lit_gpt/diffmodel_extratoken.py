@@ -82,7 +82,7 @@ class TransEncoder(nn.Module):
         #print(x[999].size())
         attn_mask = torch.ones(T+1, T+1, device=x.device, dtype=torch.bool)
 
-        # 设置最后一行（最后一个token）的所有列都为True（被mask），除了最后一列（自身）
+        #第一个extra token只能访问到自身
         attn_mask[0, 1:] = False  
         #attn_mask=None
 
