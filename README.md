@@ -64,6 +64,9 @@ We use the famous [lm-evaluation-harness](https://github.com/EleutherAI/lm-evalu
 
 
 #### MDMs pretrained on the SlimPajama dataset
+
+**Please make sure the modeling file in the evaluation package has been switched to the corresponding mode (diffmodel.py,diffmodel_extratoken.py,diffmodel_gate.py)!!!**
+
 We provide the running commands in `eval_mdm.sh`, `eval_mdm_gate.sh` and `eval_mdm_extratoken.sh`.
 
 
