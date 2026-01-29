@@ -62,7 +62,7 @@ lightning run model \
 We use the famous [lm-evaluation-harness](https://github.com/EleutherAI/lm-evaluation-harness) framework for evaluation.
 
 
-**Please make sure the modeling file in the evaluation code has been switched to the corresponding mode (diffmodel.py, diffmodel_extratoken.py, diffmodel_gate.py) before using evaluation commands!!!**
+### Please make sure the modeling file in the evaluation code has been switched to the corresponding mode (diffmodel.py, diffmodel_extratoken.py, diffmodel_gate.py) before using evaluation commands!!!
 
 We provide the running commands in `eval_mdm.sh`, `eval_mdm_gate.sh` and `eval_mdm_extratoken.sh`.
 
