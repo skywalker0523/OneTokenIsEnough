@@ -112,5 +112,16 @@ python evaluate_gsm8k_gate.py --ckpt_path "your_path_to_sftmodel"
 python evaluate_gsm8k_extratoken.py --ckpt_path "your_path_to_sftmodel"
 ```
 
+## Citation
 
+If you find our work useful in your research, please consider citing and star our repository:
+
+```
+@article{zhang2026one,
+  title={One Token Is Enough: Improving Diffusion Language Models with a Sink Token},
+  author={Zhang, Zihou and Xie, Zheyong and Zhong, Li and Liu, Haifeng and Cao, Shaosheng},
+  journal={arXiv preprint arXiv:2601.19657},
+  year={2026}
+}
+```
 
