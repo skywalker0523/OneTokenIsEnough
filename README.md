@@ -43,7 +43,7 @@ lightning run model \
     --accelerator=cuda \
     --devices=8 \
     --num-nodes=1 \
-    pretrain/train_mdm_gate.py.py --model 472 --flops 300.
+    pretrain/train_mdm_gate.py --model 472 --flops 300.
 ```
 
 ### Pretrain DLMs with extra token
@@ -53,7 +53,7 @@ lightning run model \
     --accelerator=cuda \
     --devices=8 \
     --num-nodes=1 \
-    pretrain/train_mdm_extratoken.py.py --model 472 --flops 300.
+    pretrain/train_mdm_extratoken.py --model 472 --flops 300.
 ```
 
 ## Evaluate DLMs after Pretraining
