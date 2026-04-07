@@ -1,4 +1,4 @@
-# One Token Is Enough: Improving Diffusion Language Models with a Sink Token
+#ACL2026: One Token Is Enough: Improving Diffusion Language Models with a Sink Token
 
 Diffusion Language Models (DLMs) have emerged as a compelling alternative to autoregressive approaches, enabling parallel text generation with competitive performance. Despite these advantages, there is a critical instability in DLMs: the moving sink phenomenon. Our analysis indicates that sink tokens exhibit low-norm representations in the Transformer's value space, and that the moving sink phenomenon serves as a protective mechanism in DLMs to prevent excessive information mixing. However, their unpredictable positions across diffusion steps undermine inference robustness. To resolve this, we propose a simple but effective extra sink token implemented via a modified attention mask.
 Specifically, we introduce a special token constrained to attend solely to itself, while remaining globally visible to all other tokens. 
