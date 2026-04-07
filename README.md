@@ -15,6 +15,11 @@ Our [paper](https://arxiv.org/abs/2601.19657) is available!
 
 Code for training DLM form scratch(based on [SMDM](https://github.com/ML-GSAI/SMDM)) now released!
 
+We thank [Attention-Floating](https://arxiv.org/pdf/2601.07894) for proposing a theory on the relationship between attention sink and in-context learning in diffusion language models. We conducted experiments related to in-context learning and found that the sink does indeed affect the model’s in-context learning ability. The relevant details will be added to the revision.
+
+Our [paper](https://arxiv.org/abs/2601.19657) is accepted to acl2026 (findings)!
+
+
 ## Dependency
 We can build the Anaconda environment based on [SMDM](https://github.com/ML-GSAI/SMDM). 
 
